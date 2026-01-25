@@ -3,28 +3,27 @@ library(sf) # vector data
 library(terra) # raster data
 library(whitebox) # follow install directions here https://www.whiteboxgeo.com/manual/wbt_book/r_interface.html
 library(arcpullr) # download ESRI-hosted data
-# library(tidyterra)
 library(cli) # color outputs
-library(beepr)
+# library(beepr) # beep when loop finished
 
 terraOptions(progress = 0) # prevent progress bars during raster functions
 
 # ====================
 # Define area of interest
 # ====================
+vt_blocks <- get_spatial_layer("https://services1.arcgis.com/d3OaJoSAh2eh6OA9/ArcGIS/rest/services/Vermont_Wildlife_Atlasing_Blocks/FeatureServer/0") %>%
+  st_transform(crs = 32145) # download grid
+aoi <- vt_blocks[vt_blocks$GEOUNITDES %in% c("Windsor County","Franklin County"),] # extract area of interest (can be any spatial objects)
+# you can also use political boundaries
 # vt_towns <- get_spatial_layer("https://services1.arcgis.com/BkFxaEFNwHqX3tAw/arcgis/rest/services/FS_VCGI_OPENDATA_Boundary_BNDHASH_poly_towns_SP_v1/FeatureServer/0") %>%
   # st_transform(crs = 32145) # town boundaries
 # aoi <- vt_towns[vt_towns$CNTY == "11",] # by county
 # aoi <- vt_towns[vt_towns$TOWNNAME %in% c("BERKSHIRE","RICHFORD","JAY","WESTFIELD","MONTGOMERY","ENOSBURG"),] # by town
-# aoi <- vt_towns[vt_towns$TOWNNAME %in% c("WINOOSKI","VERGENNES","SAINT ALBANS CITY"),] # by town
 
 # ====================
 # Load vectors
 # These are ESRI-hosted vector layers
 # ====================
-vt_blocks <- get_spatial_layer("https://services1.arcgis.com/d3OaJoSAh2eh6OA9/ArcGIS/rest/services/Vermont_Wildlife_Atlasing_Blocks/FeatureServer/0") %>%
-  st_transform(crs = 32145)
-aoi <- vt_blocks[vt_blocks$GEOUNITDES == "Franklin County",] # by block
 
 vt_hydro_poly <- get_spatial_layer("https://services1.arcgis.com/BkFxaEFNwHqX3tAw/arcgis/rest/services/FS_VCGI_OPENDATA_Water_VHDCARTO_poly_SP_v1/FeatureServer/0") %>%
   st_transform(crs = 32145) %>% st_make_valid() %>% st_buffer(10) #hydrology polygons
@@ -38,6 +37,11 @@ vt_hydro_lines <- get_spatial_layer("https://services1.arcgis.com/BkFxaEFNwHqX3t
 vt_wetlands <- get_spatial_layer("https://services5.arcgis.com/Uzks6LSde6r23wwG/arcgis/rest/services/Vermont_Significant_Wetland_Inventory/FeatureServer/0") %>%
   st_transform(crs = 32145) %>% st_make_valid() %>% st_buffer(10) # wetlands
 
+vt_hydro_poly <- st_intersection(vt_hydro_poly, st_union(aoi))
+vt_hydro_lines <- st_intersection(vt_hydro_lines, st_union(aoi))
+vt_wetlands <- st_intersection(vt_wetlands, st_union(aoi))
+vt_buildings <- st_intersection(vt_buildings, st_union(aoi))
+
 # ====================
 # Load cloud-hosted geotiffs https://vcgi.vermont.gov/resources/how-and-education-resources/how-use-cloud-optimized-geotiffs-cogs
 # This isn't downloading the rasters, just creating a link to the raster download.
@@ -49,19 +53,30 @@ satband_cog_url_21_21 <- rast("/vsicurl/https://s3.us-east-2.amazonaws.com/vtope
 lc_cog_url <- rast("/vsicurl/https://s3.us-east-2.amazonaws.com/vtopendata-prd/Landcover/STATEWIDE_2022_50cm_LANDCOVER_TreeCanopy.tif")
 lc_imperv_url <- rast("/vsicurl/https://s3.us-east-2.amazonaws.com/vtopendata-prd/Landcover/STATEWIDE_2022_50cm_LANDCOVER_Impervious.tif")
 
-out_dir <- "~/R/VPAtlas_LiDAR/FranklinCo" #
+out_dir <- "~/R/VPAtlas_LiDAR/RanBlocks" #
 
 wbt_init() # must initiate whitebox each session
+wbt_verbose(F) # stop whitebox from printing
 
-for (i in unique(aoi$BLOCKNAME)) {
-  start_time <- Sys.time()
+blocks <- unique(aoi$BLOCKNAME)
+total_blocks <- length(blocks)
+script_start_time <- Sys.time() # Master timer
+tmp_smooth  <- tempfile(fileext = ".tif") # create temp files; whitebox functions must run off file path
+tmp_output  <- tempfile(fileext = ".tif")
+set.seed(67)
 
-  cli_alert("Analysis begun: {i} @ {format(Sys.time(), '%Y-%m-%d %H:%M:%S')}")
+# for (i in unique(aoi$BLOCKNAME)) {
+for (counter in seq_along(blocks)) {
 
-    out_file <- paste0(out_dir,"/combined_sf_", i, ".geojson") # out_file <- paste0("~/R/VPAtlas_LiDAR/FranklinCo/combined_sf_", i, ".geojson")
+  i <- blocks[counter]
+  iteration_start_time <- Sys.time() # Timer for just this iteration
 
-            if (file.exists(out_file)) { # skip town if it already exits in directory
-              cli_alert_info("Skipping block: {i} (file already exists)")
+  # cli_alert("Processing {counter}/{total_blocks} {i} | @ {format(Sys.time(), '%Y-%m-%d %H:%M:%S')}")
+
+    out_file <- paste0(out_dir,"/combined_sf_", i, ".geojson")
+
+            if (file.exists(out_file)) { # skip spatial object if its file already exits in directory
+              cli_alert_info("Skipping block: {.val {i}} (file already exists)")
               next }
 
   tryCatch({ # reduce the chance of the whole loop stopping should one town fail
@@ -69,10 +84,9 @@ for (i in unique(aoi$BLOCKNAME)) {
     townbound <- aoi[aoi$BLOCKNAME == i, ]
 
 # ====================
-# Data prep (crop -> project)
+# Data prep (cdownload -> crop -> project)
 # ====================
 
-    # Crop and download rasters in loop or else the statewide layer will be downloaded
     dem_cog <- crop(dem_cog_url, townbound) %>% project("EPSG:32145", method = "bilinear")
     satband_cog_21_22 <- crop(satband_cog_url_21_21, townbound) %>% project("EPSG:32145", method = "bilinear")
         names(satband_cog_21_22) <- c("Red_Band", "Green_Band", "Blue_Band", "NIR_Band") # name imagery color bands
@@ -86,9 +100,6 @@ for (i in unique(aoi$BLOCKNAME)) {
 # ====================
 # DEM depression analysis
 # ====================
-    tmp_smooth  <- tempfile(fileext = ".tif") # create temp files; wbt functions must run off file path
-    tmp_output  <- tempfile(fileext = ".tif")
-
     dem3 <- focal(dem_cog, matrix(1, nrow = 3, ncol = 3), fun = median, na.rm = T) # smooth DEM, from Wu et al. 2014
     writeRaster(dem3, tmp_smooth, progress = T, overwrite = T) # write smoothed DEM to temp file
 
@@ -97,17 +108,17 @@ for (i in unique(aoi$BLOCKNAME)) {
       output = tmp_output, # save depression raster to temp file
       rmse = 0.095, # from DEM metadata
       range = 1.05, # 3*DEM resolution
-      iterations = 50, # based on Wu et al. 2014
-      wd = NULL,
+      iterations = 50, # based on Wu et al. 2014. Fewer iterations = faster, less memory use
       verbose_mode = F)
 
-    depressions <- rast(tmp_output) %>% # load depression raster to temp file
+    depressions <- rast(tmp_output) %>% # load depression raster from temp file
+      terra::deepcopy() %>%
       mask(vt_hydro_poly_int, inverse = T) %>%
-      mask(vt_wetlands_int, inverse = T) %>%
-      mask(vt_hydro_lines_int, inverse = T) %>%
-      mask(vt_buildings_int, inverse = T) %>%
-      mask(resample(lc_cog, rast(tmp_output), method = "near"), inverse = F) %>%
-      mask(resample(lc_imperv_cog, rast(tmp_output), method = "near"), inverse = T) %>%
+       mask(vt_wetlands_int, inverse = T) %>%
+       mask(vt_hydro_lines_int, inverse = T) %>%
+       mask(vt_buildings_int, inverse = T) %>%
+       mask(resample(lc_cog, rast(tmp_output), method = "near"), inverse = F) %>%
+       mask(resample(lc_imperv_cog, rast(tmp_output), method = "near"), inverse = T) %>%
       ifel(. < 0.8, NA, .) %>% # remove depressions with < 80% chance of being a depression
       focal(matrix(1, nrow = 5, ncol = 5), fun = median, na.rm = T) %>%
       as.polygons() %>%  # turn into vector polygons
@@ -121,13 +132,13 @@ for (i in unique(aoi$BLOCKNAME)) {
 
     standing_water <- ndwi_raster %>%
       mask(vt_hydro_poly_int, inverse = T) %>%
-      mask(vt_wetlands_int, inverse = T) %>%
-      mask(vt_hydro_lines_int, inverse = T) %>%
-      mask(vt_buildings_int, inverse = T) %>%
-      mask(resample(lc_cog, ndwi_raster, method = "near"), inverse = F) %>%
-      mask(resample(lc_imperv_cog, ndwi_raster, method = "near"), inverse = T) %>%
-      ifel(. < 0, NA, .) %>%# Remove negative values indicating no standing water
-      focal(matrix(1, nrow = 5, ncol = 5), fun = max, na.rm = T) %>% #use max function
+       mask(vt_wetlands_int, inverse = T) %>%
+       mask(vt_hydro_lines_int, inverse = T) %>%
+       mask(vt_buildings_int, inverse = T) %>%
+       mask(resample(lc_cog, ndwi_raster, method = "near"), inverse = F) %>%
+       mask(resample(lc_imperv_cog, ndwi_raster, method = "near"), inverse = T) %>%
+      ifel(. < 0, NA, .) %>% # Remove negative values indicating no standing water
+      focal(matrix(1, nrow = 5, ncol = 5), fun = max, na.rm = T) %>% # use max function
       as.polygons() %>%  # turn into vector polygons
       st_as_sf() %>% st_cast("POLYGON") %>%
       mutate(area = as.numeric(st_area(.)))
@@ -158,34 +169,51 @@ for (i in unique(aoi$BLOCKNAME)) {
              pred_status = as.factor(status)) %>%
       dplyr::select(area_m, pred_status, area = area_m, geometry)
 
-    st_write(combined_sf, out_file, append = F, overwrite = T)
+    st_write(combined_sf, out_file)
 
-    end_time <- format(Sys.time(), '%Y-%m-%d %H:%M:%S')
-    elapsed <- difftime(end_time, start_time, units = "mins")
+    now <- Sys.time()
+    elapsed_iteration <- difftime(now, iteration_start_time, units = "mins")
+    elapsed_total <- difftime(now, script_start_time, units = "mins")
 
-    # message("Finished block: ", i, " | Time elapsed: ", round(elapsed, 2), " minutes @", end_time)
-    cli_alert_success("Finished block: {i} | Time elapsed: {round(elapsed, 2)} minutes @ {end_time}")
-    beep(sound = 1, expr = NULL)
+    avg_time_per_block <- elapsed_total / counter
+    remaining_blocks <- total_blocks - counter
+    eta_mins <- as.numeric(avg_time_per_block) * remaining_blocks
+
+    eta_label <- if (eta_mins > 60) {
+         paste(round(eta_mins / 60, 1), "hours")
+      } else {
+         paste(round(eta_mins, 1), "mins") }
+
+    total_label <- if(elapsed_total > 60) {
+         paste(round(as.numeric(elapsed_total)/60, 2), "hours")
+      } else {
+         paste(round(elapsed_total, 2), "mins") }
+
+    cli_alert_success(
+      "Finished block {.val {i}} {.val {counter}}/{.val {total_blocks}} | \\
+      This block took {.val {round(elapsed_iteration, 2)}} mins | \\
+      Total time: {.val {total_label}} | \\
+      Time remaining: {.val {eta_label}}")
+
+    rm(dem_cog, dem3, satband_cog_21_22, lc_cog, depressions, standing_water, combined_sf)
+    gc()
 
           }, error = function(e) {
-                # message("**FAILED** block: ", i, " | ", e$message, "@ ", Sys.time())
             cli_alert_danger("***** FAILED ***** block: {i} | {e$message} @ {format(Sys.time(), '%Y-%m-%d %H:%M:%S')}")
-            })
+            beep(sound = 1, expr = NULL) }) # beep after each loop; optional
 }
 
 
 
-
 # ====================
-# Bind geojson outputs, compile into single shapefile
+# Inport geojsons, export one combined shapefile
 # ====================
-path <- "~/R/VPAtlas_LiDAR/FranklinCo"
+path <- "~/R/VPAtlas_LiDAR/RanBlocks"
 
-files <- list.files(path, pattern = "\\.geojson$", full.names = TRUE)
+geojsonfiles <- list.files(path, pattern = "\\.geojson$", full.names = TRUE)
 
-vpatlas_combined <- map_dfr(files, ~st_read(.x, quiet = TRUE))
+vp_lidar_combined <- map_dfr(geojsonfiles, ~st_read(.x, quiet = TRUE))
 
-st_write(vp_lidar_combined, paste0(path,"vp_lidar_combined.shp"))
-
+st_write(vp_lidar_combined, paste0(path,"vp_lidar_combined.shp")) # now load into QGIS or ArcGIS to assess polygons
 
 
