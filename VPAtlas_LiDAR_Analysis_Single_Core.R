@@ -14,20 +14,11 @@ target_counties <- c("Franklin County", "Windsor County", "Orleans County")
 # ====================
 vt_blocks <- get_spatial_layer("https://services1.arcgis.com/d3OaJoSAh2eh6OA9/ArcGIS/rest/services/Vermont_Wildlife_Atlasing_Blocks/FeatureServer/0",
                                out_fields = c("BLOCKNAME","QUADNAME","GEOUNITDES")) %>% st_transform(crs = 32145) # download grid
-# aoi <- vt_blocks[vt_blocks$GEOUNITDES %in% c("Windsor County","Franklin County","Orleans County"),]
 
 aoi <- vt_blocks %>%
   filter(GEOUNITDES %in% target_counties) %>%
   mutate(GEOUNITDES = factor(GEOUNITDES, levels = target_counties)) %>%
   arrange(GEOUNITDES)
-
-# 3. This line ensures the row order matches target_order
-# extract area of interest (can be any spatial objects)
-# you can also use political boundaries
-# vt_towns <- get_spatial_layer("https://services1.arcgis.com/BkFxaEFNwHqX3tAw/arcgis/rest/services/FS_VCGI_OPENDATA_Boundary_BNDHASH_poly_towns_SP_v1/FeatureServer/0") %>%
-  # st_transform(crs = 32145) # town boundaries
-# aoi <- vt_towns[vt_towns$CNTY == "11",] # by county
-# aoi <- vt_towns[vt_towns$TOWNNAME %in% c("BERKSHIRE","RICHFORD","JAY","WESTFIELD","MONTGOMERY","ENOSBURG"),] # by town
 
 # ====================
 # Load vectors
@@ -76,13 +67,10 @@ tmp_smooth  <- tempfile(fileext = ".tif") # create temp files; whitebox function
 tmp_output  <- tempfile(fileext = ".tif")
 set.seed(67)
 
-# for (i in unique(aoi$BLOCKNAME)) {
 for (counter in seq_along(blocks)) {
 
   i <- blocks[counter]
   iteration_start_time <- Sys.time() # Timer for just this iteration
-
-  # cli_alert("Processing {.val {i}} {.val {counter}}/{.val {total_blocks}} | @ {.val {format(Sys.time(), '%Y-%m-%d %H:%M:%S')}}")
 
     out_file <- paste0(out_dir,"/combined_sf_", i, ".geojson")
 
@@ -99,7 +87,6 @@ for (counter in seq_along(blocks)) {
 # ====================
 # Data prep (cdownload -> crop -> project)
 # ====================
-
     dem_cog <- crop(dem_cog_url, townbound) %>% project("EPSG:32145", method = "bilinear")
     satband_cog_21_22 <- crop(satband_cog_url_21_21, townbound) %>% project("EPSG:32145", method = "bilinear")
         names(satband_cog_21_22) <- c("Red_Band", "Green_Band", "Blue_Band", "NIR_Band") # name imagery color bands
@@ -156,7 +143,6 @@ for (counter in seq_along(blocks)) {
       st_as_sf() %>% st_cast("POLYGON") %>%
       mutate(area = as.numeric(st_area(.)))
 
-
 # ====================
 # Join depressions & water, output polygons
 # ====================
@@ -184,6 +170,9 @@ for (counter in seq_along(blocks)) {
 
     st_write(combined_sf, out_file)
 
+# ====================
+# Process outputs
+# ====================
     processed_count <- processed_count + 1
     now <- Sys.time()
 
@@ -194,7 +183,6 @@ for (counter in seq_along(blocks)) {
     remaining_blocks <- total_blocks - counter
     eta_mins <- as.numeric(avg_time_per_block) * remaining_blocks
 
-    #  logic
     eta_label <- if (eta_mins > 60) {
       paste(round(eta_mins / 60, 1), "hours")
     } else {
@@ -225,7 +213,7 @@ for (counter in seq_along(blocks)) {
 
 
 # ====================
-# Inport geojsons, export one combined shapefile
+# Import geojsons, export one combined shapefile
 # ====================
 library(tidyverse)
 library(sf)
