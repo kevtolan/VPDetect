@@ -3,7 +3,7 @@ library(sf) # vector data
 library(terra) # raster data
 library(whitebox) # follow install directions here https://www.whiteboxgeo.com/manual/wbt_book/r_interface.html
 library(arcpullr) # download ESRI-hosted data
-library(cli) # color outputs
+library(cli) # produce outputs
 library(beepr) # beep when error
 
 terraOptions(progress = 0) # prevent progress bars during raster functions
