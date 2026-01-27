@@ -4,16 +4,25 @@ library(terra) # raster data
 library(whitebox) # follow install directions here https://www.whiteboxgeo.com/manual/wbt_book/r_interface.html
 library(arcpullr) # download ESRI-hosted data
 library(cli) # color outputs
-# library(beepr) # beep when loop finished
+library(beepr) # beep when error
 
 terraOptions(progress = 0) # prevent progress bars during raster functions
+target_counties <- c("Franklin County", "Windsor County", "Orleans County")
 
 # ====================
 # Define area of interest
 # ====================
-vt_blocks <- get_spatial_layer("https://services1.arcgis.com/d3OaJoSAh2eh6OA9/ArcGIS/rest/services/Vermont_Wildlife_Atlasing_Blocks/FeatureServer/0") %>%
-  st_transform(crs = 32145) # download grid
-aoi <- vt_blocks[vt_blocks$GEOUNITDES %in% c("Windsor County","Franklin County"),] # extract area of interest (can be any spatial objects)
+vt_blocks <- get_spatial_layer("https://services1.arcgis.com/d3OaJoSAh2eh6OA9/ArcGIS/rest/services/Vermont_Wildlife_Atlasing_Blocks/FeatureServer/0",
+                               out_fields = c("BLOCKNAME","QUADNAME","GEOUNITDES")) %>% st_transform(crs = 32145) # download grid
+# aoi <- vt_blocks[vt_blocks$GEOUNITDES %in% c("Windsor County","Franklin County","Orleans County"),]
+
+aoi <- vt_blocks %>%
+  filter(GEOUNITDES %in% target_counties) %>%
+  mutate(GEOUNITDES = factor(GEOUNITDES, levels = target_counties)) %>%
+  arrange(GEOUNITDES)
+
+# 3. This line ensures the row order matches target_order
+# extract area of interest (can be any spatial objects)
 # you can also use political boundaries
 # vt_towns <- get_spatial_layer("https://services1.arcgis.com/BkFxaEFNwHqX3tAw/arcgis/rest/services/FS_VCGI_OPENDATA_Boundary_BNDHASH_poly_towns_SP_v1/FeatureServer/0") %>%
   # st_transform(crs = 32145) # town boundaries
@@ -25,22 +34,45 @@ aoi <- vt_blocks[vt_blocks$GEOUNITDES %in% c("Windsor County","Franklin County")
 # These are ESRI-hosted vector layers
 # ====================
 
-vt_hydro_poly <- get_spatial_layer("https://services1.arcgis.com/BkFxaEFNwHqX3tAw/arcgis/rest/services/FS_VCGI_OPENDATA_Water_VHDCARTO_poly_SP_v1/FeatureServer/0") %>%
-  st_transform(crs = 32145) %>% st_make_valid() %>% st_buffer(10) #hydrology polygons
+# vt_hydro_poly <- get_spatial_layer("https://services1.arcgis.com/BkFxaEFNwHqX3tAw/arcgis/rest/services/FS_VCGI_OPENDATA_Water_VHDCARTO_poly_SP_v1/FeatureServer/0",
+#                                    out_fields = c("OBJECTID")) %>% st_transform(crs = 32145) %>% st_make_valid() #hydrology polygons
+#
+# vt_buildings <- get_spatial_layer("https://services1.arcgis.com/BkFxaEFNwHqX3tAw/arcgis/rest/services/FS_VCGI_OPENDATA_STRUCTURES_POLY_SP_v1/FeatureServer/0/",
+#                                   out_fields = c("OBJECTID")) %>% st_transform(crs = 32145) %>% st_make_valid() # building footprints
+#
+# vt_hydro_lines <- get_spatial_layer("https://services1.arcgis.com/BkFxaEFNwHqX3tAw/arcgis/rest/services/FS_VCGI_OPENDATA_Water_VHDCARTO_line_SP_v1/FeatureServer/0",
+#                                     out_fields = c("OBJECTID")) %>% st_transform(crs = 32145) %>% st_make_valid() # hydrology lines
+#
+# vt_wetlands <- get_spatial_layer("https://services5.arcgis.com/Uzks6LSde6r23wwG/arcgis/rest/services/Vermont_Significant_Wetland_Inventory/FeatureServer/0",
+#                                     out_fields = c("OBJECTID")) %>% st_transform(crs = 32145) %>% st_make_valid() # hydrology lines
+#
+# vt_hydro_poly <- st_filter(vt_hydro_poly, st_union(aoi)) %>% st_simplify(dTolerance = 0.5) %>% st_buffer(10) #%>% st_simplify(dTolerance = 0.5)
+# gc()
+# vt_hydro_lines <- st_filter(vt_hydro_lines, st_union(aoi)) %>% st_simplify(dTolerance = 0.5) %>% st_buffer(10) #%>% st_simplify(dTolerance = 0.5)
+# gc()
+# vt_wetlands <- st_filter(vt_wetlands, st_union(aoi)) %>% st_simplify(dTolerance = 0.5) %>% st_buffer(10) #%>% st_simplify(dTolerance = 0.5)
+# gc()
+# vt_buildings <- st_filter(vt_buildings, st_union(aoi)) %>% st_simplify(dTolerance = 0.5) %>% st_buffer(5) #%>% st_simplify(dTolerance = 0.5)
+# gc()
 
-vt_buildings <- get_spatial_layer("https://services1.arcgis.com/BkFxaEFNwHqX3tAw/arcgis/rest/services/FS_VCGI_OPENDATA_STRUCTURES_POLY_SP_v1/FeatureServer/0/") %>%
-  st_transform(crs = 32145) %>% st_make_valid() %>% st_buffer(5) # building footprints
 
-vt_hydro_lines <- get_spatial_layer("https://services1.arcgis.com/BkFxaEFNwHqX3tAw/arcgis/rest/services/FS_VCGI_OPENDATA_Water_VHDCARTO_line_SP_v1/FeatureServer/0")  %>%
-  st_transform(crs = 32145) %>% st_make_valid() %>% st_buffer(10) # hydrology lines
+vt_hydro_poly <- get_spatial_layer("https://services1.arcgis.com/BkFxaEFNwHqX3tAw/arcgis/rest/services/FS_VCGI_OPENDATA_Water_VHDCARTO_poly_SP_v1/FeatureServer/0",
+                                   out_fields = c("OBJECTID")) %>% st_transform(crs = 32145) %>% st_make_valid()#%>% st_buffer(10) #hydrology polygons
 
-vt_wetlands <- get_spatial_layer("https://services5.arcgis.com/Uzks6LSde6r23wwG/arcgis/rest/services/Vermont_Significant_Wetland_Inventory/FeatureServer/0") %>%
-  st_transform(crs = 32145) %>% st_make_valid() %>% st_buffer(10) # wetlands
+vt_buildings <- get_spatial_layer("https://services1.arcgis.com/BkFxaEFNwHqX3tAw/arcgis/rest/services/FS_VCGI_OPENDATA_STRUCTURES_POLY_SP_v1/FeatureServer/0/",
+                                   out_fields = c("OBJECTID")) %>% st_transform(crs = 32145) %>% st_make_valid() #%>% st_buffer(5) # building footprints
 
-vt_hydro_poly <- st_intersection(vt_hydro_poly, st_union(aoi))
-vt_hydro_lines <- st_intersection(vt_hydro_lines, st_union(aoi))
-vt_wetlands <- st_intersection(vt_wetlands, st_union(aoi))
-vt_buildings <- st_intersection(vt_buildings, st_union(aoi))
+vt_hydro_lines <- get_spatial_layer("https://services1.arcgis.com/BkFxaEFNwHqX3tAw/arcgis/rest/services/FS_VCGI_OPENDATA_Water_VHDCARTO_line_SP_v1/FeatureServer/0",
+                                    out_fields = c("OBJECTID")) %>% st_transform(crs = 32145) %>% st_make_valid() #%>% st_buffer(10) # hydrology lines
+
+vt_wetlands <- get_spatial_layer("https://services5.arcgis.com/Uzks6LSde6r23wwG/arcgis/rest/services/Vermont_Significant_Wetland_Inventory/FeatureServer/0",
+                                   out_fields = c("OBJECTID")) %>% st_transform(crs = 32145) %>% st_make_valid() #%>% st_buffer(10) # wetlands
+
+vt_hydro_poly <- st_intersection(vt_hydro_poly, st_union(aoi)) %>% st_buffer(10)
+vt_hydro_lines <- st_intersection(vt_hydro_lines, st_union(aoi)) %>% st_buffer(10)
+vt_wetlands <- st_intersection(vt_wetlands, st_union(aoi)) %>% st_buffer(10)
+vt_buildings <- st_intersection(vt_buildings, st_union(aoi)) %>% st_buffer(5)
+
 
 # ====================
 # Load cloud-hosted geotiffs https://vcgi.vermont.gov/resources/how-and-education-resources/how-use-cloud-optimized-geotiffs-cogs
@@ -61,6 +93,8 @@ wbt_verbose(F) # stop whitebox from printing
 blocks <- unique(aoi$BLOCKNAME)
 total_blocks <- length(blocks)
 script_start_time <- Sys.time() # Master timer
+processed_count <- 0  # Track actual work done
+skipped_count <- 0    # Track skipped files
 tmp_smooth  <- tempfile(fileext = ".tif") # create temp files; whitebox functions must run off file path
 tmp_output  <- tempfile(fileext = ".tif")
 set.seed(67)
@@ -71,13 +105,15 @@ for (counter in seq_along(blocks)) {
   i <- blocks[counter]
   iteration_start_time <- Sys.time() # Timer for just this iteration
 
-  # cli_alert("Processing {counter}/{total_blocks} {i} | @ {format(Sys.time(), '%Y-%m-%d %H:%M:%S')}")
+  # cli_alert("Processing {.val {i}} {.val {counter}}/{.val {total_blocks}} | @ {.val {format(Sys.time(), '%Y-%m-%d %H:%M:%S')}}")
 
     out_file <- paste0(out_dir,"/combined_sf_", i, ".geojson")
 
             if (file.exists(out_file)) { # skip spatial object if its file already exits in directory
               cli_alert_info("Skipping block: {.val {i}} (file already exists)")
+              skipped_count <- skipped_count + 1
               next }
+
 
   tryCatch({ # reduce the chance of the whole loop stopping should one town fail
 
@@ -157,11 +193,11 @@ for (counter in seq_along(blocks)) {
       mutate(water_id = row_number()) %>%
       dplyr::select(water_id, area_water = area)
 
-    dep_side <- st_join(dep_filtered, water_filtered, join = st_intersects)
+    dep_join <- st_join(dep_filtered, water_filtered, join = st_intersects)
 
     water_only <- st_join(water_filtered, dep_filtered, join = st_intersects) %>% filter(is.na(dep_id))
 
-    combined_sf <- bind_rows(dep_side, water_only) %>%
+    combined_sf <- bind_rows(dep_join, water_only) %>%
       mutate(status = case_when(!is.na(dep_id) & !is.na(water_id) ~ "Water_Depression",
                                 !is.na(dep_id) & is.na(water_id)  ~ "Depression",
                                 is.na(dep_id)  & !is.na(water_id) ~ "Water"),
@@ -171,36 +207,42 @@ for (counter in seq_along(blocks)) {
 
     st_write(combined_sf, out_file)
 
+    processed_count <- processed_count + 1
     now <- Sys.time()
-    elapsed_iteration <- difftime(now, iteration_start_time, units = "mins")
-    elapsed_total <- difftime(now, script_start_time, units = "mins")
 
-    avg_time_per_block <- elapsed_total / counter
+    elapsed_iteration <- difftime(now, iteration_start_time, units = "mins")
+    elapsed_session <- difftime(now, script_start_time, units = "mins")
+
+    avg_time_per_block <- elapsed_session / processed_count
     remaining_blocks <- total_blocks - counter
     eta_mins <- as.numeric(avg_time_per_block) * remaining_blocks
 
+    #  logic
     eta_label <- if (eta_mins > 60) {
-         paste(round(eta_mins / 60, 1), "hours")
-      } else {
-         paste(round(eta_mins, 1), "mins") }
+      paste(round(eta_mins / 60, 1), "hours")
+    } else {
+      paste(round(eta_mins, 1), "mins")
+    }
 
-    total_label <- if(elapsed_total > 60) {
-         paste(round(as.numeric(elapsed_total)/60, 2), "hours")
+    total_label <- if(elapsed_session > 60) {
+         paste(round(as.numeric(elapsed_session)/60, 2), "hours")
       } else {
-         paste(round(elapsed_total, 2), "mins") }
+         paste(round(elapsed_session, 2), "mins") }
 
     cli_alert_success(
-      "Finished block {.val {i}} {.val {counter}}/{.val {total_blocks}} | \\
-      This block took {.val {round(elapsed_iteration, 2)}} mins | \\
-      Total time: {.val {total_label}} | \\
-      Time remaining: {.val {eta_label}}")
+      "Finished block {.val {i}} {.val {counter}}/{.val {total_blocks}} @ {.val {format(Sys.time(), '%Y-%m-%d %H:%M:%S')}} | \\
+       This block took {.val {round(elapsed_iteration, 2)}} mins")
+
+    cli_alert_success(
+      "Total time: {.val {total_label}} | \\
+       Time remaining: {.val {eta_label}}")
 
     rm(dem_cog, dem3, satband_cog_21_22, lc_cog, depressions, standing_water, combined_sf)
     gc()
 
           }, error = function(e) {
-            cli_alert_danger("***** FAILED ***** block: {i} | {e$message} @ {format(Sys.time(), '%Y-%m-%d %H:%M:%S')}")
-            beep(sound = 1, expr = NULL) }) # beep after each loop; optional
+            cli_alert_danger("***** FAILED ***** block: {.val {i}}  @ {.val {format(Sys.time(), '%Y-%m-%d %H:%M:%S')}} {e$message}")
+            beep(sound = 1, expr = NULL) }) # beep after error; optional
 }
 
 
@@ -208,12 +250,14 @@ for (counter in seq_along(blocks)) {
 # ====================
 # Inport geojsons, export one combined shapefile
 # ====================
+library(tidyverse)
+library(sf)
 path <- "~/R/VPAtlas_LiDAR/RanBlocks"
 
 geojsonfiles <- list.files(path, pattern = "\\.geojson$", full.names = TRUE)
 
 vp_lidar_combined <- map_dfr(geojsonfiles, ~st_read(.x, quiet = TRUE))
 
-st_write(vp_lidar_combined, paste0(path,"vp_lidar_combined.shp")) # now load into QGIS or ArcGIS to assess polygons
+st_write(vp_lidar_combined, paste0(path,"vp_lidar_combined.shp"), append=FALSE) # now load into QGIS or ArcGIS to assess polygons
 
 
