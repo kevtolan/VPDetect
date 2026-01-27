@@ -33,29 +33,6 @@ aoi <- vt_blocks %>%
 # Load vectors
 # These are ESRI-hosted vector layers
 # ====================
-
-# vt_hydro_poly <- get_spatial_layer("https://services1.arcgis.com/BkFxaEFNwHqX3tAw/arcgis/rest/services/FS_VCGI_OPENDATA_Water_VHDCARTO_poly_SP_v1/FeatureServer/0",
-#                                    out_fields = c("OBJECTID")) %>% st_transform(crs = 32145) %>% st_make_valid() #hydrology polygons
-#
-# vt_buildings <- get_spatial_layer("https://services1.arcgis.com/BkFxaEFNwHqX3tAw/arcgis/rest/services/FS_VCGI_OPENDATA_STRUCTURES_POLY_SP_v1/FeatureServer/0/",
-#                                   out_fields = c("OBJECTID")) %>% st_transform(crs = 32145) %>% st_make_valid() # building footprints
-#
-# vt_hydro_lines <- get_spatial_layer("https://services1.arcgis.com/BkFxaEFNwHqX3tAw/arcgis/rest/services/FS_VCGI_OPENDATA_Water_VHDCARTO_line_SP_v1/FeatureServer/0",
-#                                     out_fields = c("OBJECTID")) %>% st_transform(crs = 32145) %>% st_make_valid() # hydrology lines
-#
-# vt_wetlands <- get_spatial_layer("https://services5.arcgis.com/Uzks6LSde6r23wwG/arcgis/rest/services/Vermont_Significant_Wetland_Inventory/FeatureServer/0",
-#                                     out_fields = c("OBJECTID")) %>% st_transform(crs = 32145) %>% st_make_valid() # hydrology lines
-#
-# vt_hydro_poly <- st_filter(vt_hydro_poly, st_union(aoi)) %>% st_simplify(dTolerance = 0.5) %>% st_buffer(10) #%>% st_simplify(dTolerance = 0.5)
-# gc()
-# vt_hydro_lines <- st_filter(vt_hydro_lines, st_union(aoi)) %>% st_simplify(dTolerance = 0.5) %>% st_buffer(10) #%>% st_simplify(dTolerance = 0.5)
-# gc()
-# vt_wetlands <- st_filter(vt_wetlands, st_union(aoi)) %>% st_simplify(dTolerance = 0.5) %>% st_buffer(10) #%>% st_simplify(dTolerance = 0.5)
-# gc()
-# vt_buildings <- st_filter(vt_buildings, st_union(aoi)) %>% st_simplify(dTolerance = 0.5) %>% st_buffer(5) #%>% st_simplify(dTolerance = 0.5)
-# gc()
-
-
 vt_hydro_poly <- get_spatial_layer("https://services1.arcgis.com/BkFxaEFNwHqX3tAw/arcgis/rest/services/FS_VCGI_OPENDATA_Water_VHDCARTO_poly_SP_v1/FeatureServer/0",
                                    out_fields = c("OBJECTID")) %>% st_transform(crs = 32145) %>% st_make_valid()#%>% st_buffer(10) #hydrology polygons
 
