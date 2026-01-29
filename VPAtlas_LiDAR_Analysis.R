@@ -3,27 +3,29 @@ library(sf) # vector data
 library(terra) # raster data
 library(whitebox) # follow install directions here https://www.whiteboxgeo.com/manual/wbt_book/r_interface.html
 library(arcpullr) # download ESRI-hosted data
-library(cli) # produce outputs
+library(cli) # color outputs
 library(beepr) # beep when error
-
 terraOptions(progress = 0) # prevent progress bars during raster functions
-target_counties <- c("Franklin County", "Windsor County", "Orleans County")
+
+target_counties <- c("Franklin County", "Windsor County", "Orleans County") # in order that you want to run
 
 # ====================
 # Define area of interest
 # ====================
 vt_blocks <- get_spatial_layer("https://services1.arcgis.com/d3OaJoSAh2eh6OA9/ArcGIS/rest/services/Vermont_Wildlife_Atlasing_Blocks/FeatureServer/0",
                                out_fields = c("BLOCKNAME","QUADNAME","GEOUNITDES")) %>% st_transform(crs = 32145) # download grid
+# sort by county
+# aoi <- vt_blocks %>%
+  # filter(GEOUNITDES %in% target_counties) %>%
+  # mutate(GEOUNITDES = factor(GEOUNITDES, levels = target_counties)) %>%
+  # arrange(GEOUNITDES)
 
-aoi <- vt_blocks %>%
-  filter(GEOUNITDES %in% target_counties) %>%
-  mutate(GEOUNITDES = factor(GEOUNITDES, levels = target_counties)) %>%
-  arrange(GEOUNITDES)
+# run all blocks
+aoi <- vt_blocks
+files <- list.files("~/R/VPAtlas_LiDAR/RanBlocks", pattern = "\\.geojson$")
+existing_blocks <- gsub("combined_sf_|\\.geojson", "", files)
+aoi <- aoi[order(!(aoi$BLOCKNAME %in% existing_blocks)), ] # sort existing files to top
 
-# ====================
-# Load vectors
-# These are ESRI-hosted vector layers
-# ====================
 vt_hydro_poly <- get_spatial_layer("https://services1.arcgis.com/BkFxaEFNwHqX3tAw/arcgis/rest/services/FS_VCGI_OPENDATA_Water_VHDCARTO_poly_SP_v1/FeatureServer/0",
                                    out_fields = c("OBJECTID")) %>% st_transform(crs = 32145) %>% st_make_valid()#%>% st_buffer(10) #hydrology polygons
 
@@ -40,6 +42,8 @@ vt_hydro_poly <- st_intersection(vt_hydro_poly, st_union(aoi)) %>% st_buffer(10)
 vt_hydro_lines <- st_intersection(vt_hydro_lines, st_union(aoi)) %>% st_buffer(10)
 vt_wetlands <- st_intersection(vt_wetlands, st_union(aoi)) %>% st_buffer(10)
 vt_buildings <- st_intersection(vt_buildings, st_union(aoi)) %>% st_buffer(5)
+
+gc()
 
 
 # ====================
@@ -67,8 +71,8 @@ tmp_smooth  <- tempfile(fileext = ".tif") # create temp files; whitebox function
 tmp_output  <- tempfile(fileext = ".tif")
 set.seed(67)
 
+# for (i in unique(aoi$BLOCKNAME)) {
 for (counter in seq_along(blocks)) {
-
   i <- blocks[counter]
   iteration_start_time <- Sys.time() # Timer for just this iteration
 
@@ -81,7 +85,6 @@ for (counter in seq_along(blocks)) {
 
 
   tryCatch({ # reduce the chance of the whole loop stopping should one town fail
-
     townbound <- aoi[aoi$BLOCKNAME == i, ]
 
 # ====================
@@ -143,6 +146,7 @@ for (counter in seq_along(blocks)) {
       st_as_sf() %>% st_cast("POLYGON") %>%
       mutate(area = as.numeric(st_area(.)))
 
+
 # ====================
 # Join depressions & water, output polygons
 # ====================
@@ -170,19 +174,16 @@ for (counter in seq_along(blocks)) {
 
     st_write(combined_sf, out_file)
 
-# ====================
-# Process outputs
-# ====================
     processed_count <- processed_count + 1
     now <- Sys.time()
 
     elapsed_iteration <- difftime(now, iteration_start_time, units = "mins")
     elapsed_session <- difftime(now, script_start_time, units = "mins")
-
     avg_time_per_block <- elapsed_session / processed_count
     remaining_blocks <- total_blocks - counter
     eta_mins <- as.numeric(avg_time_per_block) * remaining_blocks
 
+    #  logic
     eta_label <- if (eta_mins > 60) {
       paste(round(eta_mins / 60, 1), "hours")
     } else {
@@ -202,8 +203,14 @@ for (counter in seq_along(blocks)) {
       "Total time: {.val {total_label}} | \\
        Time remaining: {.val {eta_label}}")
 
-    rm(dem_cog, dem3, satband_cog_21_22, lc_cog, depressions, standing_water, combined_sf)
-    gc()
+    rm(ndwi_raster, vt_hydro_poly_int, vt_hydro_lines_int,
+       vt_wetlands_int, vt_buildings_int, dep_filtered, combined_sf,
+       water_filtered, dep_join, water_only, lc_imperv_cog, townbound,
+       dem_cog, dem3, satband_cog_21_22, lc_cog, depressions, standing_water)
+
+    gc(full = TRUE) # clear removed object memory
+    unlink(c(tmp_smooth, tmp_output))  # ensure temp files from previous iteration are removed to not accumulate memory usage
+    tmpFiles(remove = TRUE)
 
           }, error = function(e) {
             cli_alert_danger("***** FAILED ***** block: {.val {i}}  @ {.val {format(Sys.time(), '%Y-%m-%d %H:%M:%S')}} {e$message}")
@@ -211,9 +218,8 @@ for (counter in seq_along(blocks)) {
 }
 
 
-
 # ====================
-# Import geojsons, export one combined shapefile
+# Inport geojsons, export one combined shapefile
 # ====================
 library(tidyverse)
 library(sf)
