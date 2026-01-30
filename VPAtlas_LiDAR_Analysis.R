@@ -183,12 +183,10 @@ for (counter in seq_along(blocks)) {
     remaining_blocks <- total_blocks - counter
     eta_mins <- as.numeric(avg_time_per_block) * remaining_blocks
 
-    #  logic
     eta_label <- if (eta_mins > 60) {
       paste(round(eta_mins / 60, 1), "hours")
     } else {
-      paste(round(eta_mins, 1), "mins")
-    }
+      paste(round(eta_mins, 1), "mins") }
 
     total_label <- if(elapsed_session > 60) {
          paste(round(as.numeric(elapsed_session)/60, 2), "hours")
