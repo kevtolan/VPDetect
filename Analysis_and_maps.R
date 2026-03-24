@@ -10,45 +10,79 @@ library(grid)
 library(mapview)
 library(gridExtra)
 library(units)
+library(elevatr)
 
-depressions <- st_read('~/R/VPAtlas_LiDAR/RanBlocksvp_lidar_combined.shp') %>%
+
+
+
+
+proland <- st_read('~/R/R_Spatial/spat/FS_VCGI_OPENDATA_Cadastral_PROTECTEDLND_poly_SP_v2_4663873866724723700.geojson') %>%
+  st_transform(crs = 32145) #%>%
+  # filter(!(PTYPE1 %in% c("EASEMENT", "DEED", "DZONE")))
+
+mapview(proland[proland$NAME == 'Billings Park',])
+
+public_land <- proland %>%
+  filter(
+    str_detect(NAME, "WMA|Wma|State Park|Town Forest|National Forest|Wildlife Management Area|Town Park|State Forest") |
+      PAGENCY1 %in% c('5001936325', '5000170075', '5002346000', '2000032000',
+                      '5000357025', '3000045100', '5002785975', '4000052010'))
+mapview(public_land)
+
+depressions <- st_read('/Users/kevintolan/R/VPAtlas_LiDAR/RanBlocksvp_lidar_combined.shp') %>%
   st_make_valid()
 
 bioph <- st_read('~/R/AMMonitor_VPMon/VPMon_AMM/spatials/Biophysical_Regions.shp')
 
-towns <- st_read('~/R/R_Spatial/spat/FS_VCGI_OPENDATA_Boundary_BNDHASH_poly_towns_SP_v1.shp') %>%
+towns <- st_read('/Users/kevintolan/R/R_Spatial/spat/FS_VCGI_OPENDATA_Boundary_BNDHASH_poly_towns_SP_v1.shp') %>%
   st_transform(crs = 32145)
 
-vt_water <- st_read("~/R/EAME_Report_Scripts/FS_VCGI_OPENDATA_Water_VHDCARTO_poly_SP_v1_-4286233864636686690.geojson") %>%
-  st_transform(crs = 32145) %>%
-  st_simplify(dTolerance = 1)
 
-mappedpools <- st_read('~/R/VPAtlas_LiDAR/vp_mapped.geojson') %>%
-  st_transform(crs = 32145) %>%
-  mutate(poolStatus = case_when(
-    poolStatus == "Confirmed" ~ "Confirmed (n = 965)",
-    poolStatus == "Potential" ~ "Potential (n = 3,306)",
-    poolStatus == "Probable"  ~ "Probable (n = 1,074)",
-    TRUE ~ as.character(poolStatus)),
-    `Pool Status` = factor(poolStatus,
-                                levels = c("Confirmed (n = 965)",
-                                           "Probable (n = 1,074)",
-                                           "Potential (n = 3,306)")))
 
-interp_grid <- st_read('~/R/VPAtlas_LiDAR/LiDAR_Grid.shp') %>%
+
+monitoredpools <- st_read('/Users/kevintolan/R/VPAtlas_LiDAR/vp_survey.geojson') %>%
+  st_transform(crs = 32145) %>%
+  select(poolId) %>%
+  group_by(poolId) %>%
+  slice_head(n = 1) #%>%
+  # get_elev_point()
+# mapview(monitoredpools, zcol = "elevation")
+# hist(monitoredpools$elevation)
+
+mappedpools <- st_read('/Users/kevintolan/R/VPAtlas_LiDAR/vp_mapped.geojson') %>%
+  st_transform(crs = 32145) %>%
+  add_count(poolStatus) %>%
+  mutate(
+    poolStatus = paste0(poolStatus, " (n = ", format(n, big.mark = ",", trim = TRUE), ")"),
+    `Pool Status` = factor(poolStatus)
+  ) %>%
+  mutate(`Pool Status` = forcats::fct_reorder(`Pool Status`, n, .desc = TRUE)) %>%
+  select(-n)
+
+conf_lab <- unique(mappedpools$poolStatus[grepl("Confirmed", mappedpools$poolStatus)])
+prob_lab <- unique(mappedpools$poolStatus[grepl("Probable", mappedpools$poolStatus)])
+pote_lab <- unique(mappedpools$poolStatus[grepl("Potential", mappedpools$poolStatus)])
+
+mappedpools$`Pool Status` <- factor(mappedpools$poolStatus,
+                                    levels = c(conf_lab, prob_lab, pote_lab))
+
+interp_grid <- st_read('/Users/kevintolan/R/VPAtlas_LiDAR/LiDAR_Grid.shp') %>%
   st_transform(crs = 32145) %>%
   mutate(Checked = case_when(
     Checked == "Yes" ~ "Yes",
     Checked == "Yes2" ~ "Yes",
-    # poolStatus == "Probable"  ~ "Probable (n = 1,074)",
     TRUE ~ "No"),
     Checked = factor(Checked,
                            levels = c("Yes",
                                       "No")))
 
-# checkedgrid <- interp_grid[interp_grid$Checked == "Yes",]
-# total_area <- sum(st_area(checkedgrid))
-# area_sq_miles <- set_units(total_area, mi^2)
+
+checkedgrid <- interp_grid[interp_grid$Checked == "Yes",]
+
+total_area <- sum(st_area(interp_grid))
+total_area_checked <- sum(st_area(checkedgrid))
+total_area_checked/total_area
+area_sq_miles_checked <- set_units(total_area, mi^2)
 
 newpools <- st_read('/Users/kevintolan/R/VPAtlas_LiDAR/2026_LiDAR_New_VPs.shp') %>%
   st_transform(crs = 32145) %>%
@@ -56,6 +90,18 @@ newpools <- st_read('/Users/kevintolan/R/VPAtlas_LiDAR/2026_LiDAR_New_VPs.shp') 
   slice_head(n = 1) %>%
   ungroup() %>%
   mutate(poolId = paste0("LDR",row_number()))
+
+
+
+grid_counts <- interp_grid %>%
+  filter(Checked == 'Yes') %>%
+  st_transform(crs = 32145) %>%
+  st_join(newpools) %>%
+  group_by(geometry) %>%
+  summarise(
+    pool_count = sum(!is.na(poolId)),
+    Checked = first(Checked)) %>%
+  ungroup()
 
 newpoolsexport <- newpools %>%
                       st_join(depressions, left = TRUE) %>%
@@ -68,22 +114,89 @@ newpoolsexport <- newpools %>%
                         dplyr::select(poolId,MapMethod) %>%
                       group_by(poolId) %>%
                       slice_head(n = 1) %>% ungroup()
+nrow(newpoolsexport)
+table(newpoolsexport$MapMethod)
 
-# st_write(newpoolsexport,"New_VPs_March2_2026.geojson")
+# st_write(newpoolsexport,"New_VPs_March17_2026.geojson")
+
 mappedpools_sel <- mappedpools %>% mutate(long = st_coordinates(.)[,1],
                                          lat = st_coordinates(.)[,2]) %>%
-                                  dplyr::select(poolId,long,lat)
+                                  dplyr::select(poolId,long,lat,poolStatus) %>%
+  mutate(poolStatus = case_when(
+    poolStatus == "Confirmed (n = 965)" ~ "Confirmed",
+    poolStatus == "Potential (n = 3,306)" ~ "Potential",
+    poolStatus == "Probable (n = 1,074)"  ~ "Probable",
+    TRUE ~ as.character(poolStatus)))
 
 
-all_pools_sel <- newpools %>% mutate(long = st_coordinates(.)[,1],
-                                         lat = st_coordinates(.)[,2]) %>%
-                                  dplyr::select(poolId,long,lat) %>%
-                                  bind_rows(mappedpools_sel)
+pool_town_joined <- newpools %>% mutate(long = st_coordinates(.)[,1],
+                                         lat = st_coordinates(.)[,2],
+                                     poolStatus = "New_potential") %>%
+                                  dplyr::select(poolId,long,lat,poolStatus) %>%
+                                  bind_rows(mappedpools_sel) %>%
+                                  st_intersection(towns)
 
 
-# allpools_int <- all_pools_sel %>% st_join(depressions, left = TRUE)
+# pool_town_joined84 <- pool_town_joined %>% st_transform(4326) %>% get_elev_point()
+# saveRDS(pool_town_joined84, "pool_town_joined84.rds")
 
-depressions_int <- depressions %>% st_join(all_pools_sel, left = FALSE) %>%
+
+# mappedpools_sel84 <- pool_town_joined %>% st_transform(4326) %>% select(c(poolId,poolStatus)) %>%
+  # rename(name = poolId,
+         # desc = poolStatus)#,
+         # ele = elevation)
+
+
+# st_write(mappedpools_sel84, dsn = "vernalpools_Mar14.gpx", driver = "GPX",
+         # dataset_options = "GPX_USE_EXTENSIONS=YES", delete_dsn = TRUE)
+
+
+
+
+
+
+
+hist(pool_town_joined84$elevation)
+
+mapview(pool_town_joined84, zcol = "elevation") + mapview(proland, alpha = 0.5)
+
+mapview(pool_town_joined84 %>% filter(elevation > 650,
+                                    elevation < 1000), zcol = "elevation") +
+  mapview(proland, alpha = 0.5)
+
+
+pro_visits_wmas <- st_intersection(proland,pool_town_joined) %>%
+  filter(str_detect(NAME, "WMA"))
+  # filter(poolStatus != "Confirmed")
+mapview(pro_visits_wmas[pro_visits_wmas$elevation >= 700,], zcol = "elevation")
+mapview(pro_visits_wmas, zcol = "elevation")
+
+mapview(pro_visits_wmas)
+
+
+# pool_town_joined_hart <- pool_town_joined[pool_town_joined$TOWNNAMEMC == "Hartland",]
+# pool_town_joined_hart <- pool_town_joined[pool_town_joined$TOWNNAMEMC %in% c('Weybridge','Middlebury',
+#                                                                              'Cornwall','New Haven',
+#                                                                              'Addison','Ripton',
+#                                                                              'Whiting','Salisbury'),]
+pool_town_joined_hart <- pool_town_joined[pool_town_joined$TOWNNAMEMC == 'Woodstock',]
+
+mapview(pool_town_joined_hart)
+# write.csv(pool_town_joined_hart,"All_Pools_Middlebury.csv")
+table(pool_town_joined_hart$poolStatus)
+
+
+
+pro_visits <- st_intersection(proland,pool_town_joined) %>%
+                      filter(poolStatus != "Confirmed")
+
+mapview(pro_visits)
+
+# write.csv(pro_visits,"Protected_lands_Pools_Middlebury.csv")
+#
+
+
+depressions_int <- depressions %>% st_join(pool_town_joined, left = FALSE) %>%
                                   st_transform(crs = 4326) %>%
                                   mutate(DetectionMethod = case_when(
                                     prd_stt == "Water_Depression" ~ "LiDAR_NDWI",
@@ -95,23 +208,31 @@ depressions_int <- depressions %>% st_join(all_pools_sel, left = FALSE) %>%
                                   slice_head(n = 1) %>% ungroup()
 table(depressions_int$DetectionMethod)
 
-mapview(depressions_int, zcol = "DetectionMethod") + mapview(all_pools_sel)
-mapview(depressions_int[depressions_int$poolId == "LDR1836",])
-# st_write(depressions_int,"LiDAR_Polygons_March2_2026.geojson")
+
+
+
+mappedpoolsdetect <- mappedpools_sel %>% st_join(depressions)
+mapview(mappedpoolsdetect[is.na(mappedpoolsdetect$prd_stt), ])
+# mapview(depressions_int, zcol = "DetectionMethod") + mapview(all_pools_sel)
+# mapview(depressions_int[depressions_int$poolId == "LDR1836",])
+# st_write(depressions_int,"LiDAR_Polygons_March17_2026.geojson")
 
 ## maps
 
+vt_water <- st_read("/Users/kevintolan/R/EAME_Report_Scripts/FS_VCGI_OPENDATA_Water_VHDCARTO_poly_SP_v1_-4286233864636686690.geojson") %>%
+  st_transform(crs = 32145) %>%
+  st_simplify(dTolerance = 1)
 
 
 p1 <- ggplot() +
   geom_sf(data = towns, fill = "white", color = 'gray', linewidth = .5) +
   geom_sf(data = vt_water %>% filter(FTYPE == "LakePond",
                                      AREASQKM >= 2), fill = 'lightblue', color = "black", linewidth = .25) +
-  geom_sf(data = newpools, aes(fill = "New = 7,272"), size = 2,
+  geom_sf(data = newpools, aes(fill = "New = 8,116"), size = 2,
           linewidth = 0.1, color = "#fbaca7", alpha = 0.9, shape = 21) +
   scale_fill_manual(
     name = "Pool Status",
-    values = c("New = 7,272" = "black")) +
+    values = c("New = 8,116" = "black")) +
   guides(fill = guide_legend(override.aes = list(size = 6))) +
   geom_sf(data = bioph, fill = NA, color = "black", linewidth = .5) +
   labs(x = "Longitude", y = 'Latitude') +
@@ -190,18 +311,18 @@ p2 <- ggplot() +
 
 
 
-
 p3 <- ggplot() +
   geom_sf(data = towns, fill = "white", color = 'gray', linewidth = .5) +
-  geom_sf(data = interp_grid, aes(fill = Checked), color = "black", linewidth = 0.05) +
+  # Map alpha to the condition (TRUE if 0, FALSE if >0)
+  geom_sf(data = grid_counts,
+          aes(fill = pool_count, alpha = pool_count == 0),
+          color = "black", linewidth = 0.0) +
   geom_sf(data = vt_water %>% filter(FTYPE == "LakePond", AREASQKM >= 2),
           fill = 'lightblue', color = "black", linewidth = .25) +
-  scale_fill_manual(
-    name = "Interpreted?",
-    values = c("Yes" = "cyan",
-               "No" = "transparent")) +
-  guides(fill = guide_legend(override.aes = list(alpha = .8)),
-         color = guide_legend(override.aes = list(size = 6))) +
+  scale_alpha_manual(values = c("TRUE" = 0.9, "FALSE" = 1), guide = "none") +
+  scale_fill_viridis_c(option = "turbo",
+                       direction = 1,
+                       name = expression(atop("New Pools", paste("per 6.25 ", km^2)))) +
   geom_sf(data = bioph, fill = NA, color = "black", linewidth = .5) +
   labs(x = "Longitude", y = 'Latitude') +
   annotation_scale(aes(unit_category = "imperial",
@@ -217,24 +338,23 @@ p3 <- ggplot() +
     style = ggspatial::north_arrow_fancy_orienteering(
       fill = c("black", "white"),
       line_col = "grey20",
-      text_family = "ArcherPro Book",
+      # text_family = "ArcherPro Book", # Ensure this font is loaded or comment out
       text_size = 25)) +
+  guides(fill = guide_colorbar(barwidth = 2, barheight = 10)) +
   theme(
-        legend.key.size = unit(1, 'cm'),
-        legend.key.height= unit(1, 'cm'),
-        legend.key.width= unit(1, 'cm'),
-        legend.text = element_text(size=12),
-        legend.title=element_text(size=15, face = "bold"),
-        legend.position = c(.8, .39),
-        legend.background = element_rect(fill="white",
-                                         size=.5, linetype="solid",
-                                         colour ="black"),
-        axis.text=element_blank(),
-        axis.title=element_blank(),
-        axis.ticks = element_blank(),
-        # axis.text.y=element_text(color = "black",size=15),
-        panel.background = element_rect(fill = '#F6F6F6'))
-
+    legend.key.size = unit(1, 'cm'),
+    legend.key.height= unit(1, 'cm'),
+    legend.key.width= unit(1, 'cm'),
+    legend.text = element_text(size=12),
+    legend.title=element_text(size=15, face = "bold"),
+    legend.position = c(.81, .39),
+    legend.background = element_rect(fill="white",
+                                     linewidth=.5, linetype="solid", # 'size' is deprecated for rect
+                                     colour ="black"),
+    axis.text=element_blank(),
+    axis.title=element_blank(),
+    axis.ticks = element_blank(),
+    panel.background = element_rect(fill = '#F6F6F6'))
 
 
 
