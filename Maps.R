@@ -12,49 +12,32 @@ library(units)
 library(elevatr)
 
 
-
-
-
-proland <- st_read('~/R/R_Spatial/spat/FS_VCGI_OPENDATA_Cadastral_PROTECTEDLND_poly_SP_v2_4663873866724723700.geojson') %>%
-  st_transform(crs = 32145) #%>%
-  # filter(!(PTYPE1 %in% c("EASEMENT", "DEED", "DZONE")))
-
-mapview(proland[proland$NAME == 'Billings Park',])
-
-public_land <- proland %>%
-  filter(
-    str_detect(NAME, "WMA|Wma|State Park|Town Forest|National Forest|Wildlife Management Area|Town Park|State Forest") |
-      PAGENCY1 %in% c('5001936325', '5000170075', '5002346000', '2000032000',
-                      '5000357025', '3000045100', '5002785975', '4000052010'))
-mapview(public_land)
-
-depressions <- st_read('~/R/VPAtlas_LiDAR/RanBlocksvp_lidar_combined.shp') %>%
-  st_make_valid()
+depressions <- st_read('~/R/VPAtlas_LiDAR/RanBlocksvp_lidar_combined.shp') %>% st_make_valid() 
 
 bioph <- st_read('~/R/AMMonitor_VPMon/VPMon_AMM/spatials/Biophysical_Regions.shp')
 
-towns <- st_read('~/R/R_Spatial/spat/FS_VCGI_OPENDATA_Boundary_BNDHASH_poly_towns_SP_v1.shp') %>%
-  st_transform(crs = 32145)
+towns <- st_read('~/R/R_Spatial/spat/FS_VCGI_OPENDATA_Boundary_BNDHASH_poly_towns_SP_v1.shp') %>% st_transform(crs = 32145)
 
-
-
-
-monitoredpools <- st_read('~/R/VPAtlas_LiDAR/vp_survey.geojson') %>%
+vt_water <- st_read("~/R/EAME_Report_Scripts/FS_VCGI_OPENDATA_Water_VHDCARTO_poly_SP_v1_-4286233864636686690.geojson") %>%
   st_transform(crs = 32145) %>%
-  select(poolId) %>%
-  group_by(poolId) %>%
-  slice_head(n = 1) #%>%
-  # get_elev_point()
-# mapview(monitoredpools, zcol = "elevation")
-# hist(monitoredpools$elevation)
+  st_simplify(dTolerance = 1)
 
+
+# new pools
+newpools <- st_read('~/R/VPAtlas_LiDAR/2026_LiDAR_New_VPs.shp') %>%
+  st_transform(crs = 32145) %>%
+  group_by(geometry) %>%
+  slice_head(n = 1) %>%
+  ungroup() %>%
+  mutate(poolId = paste0("LDR",row_number()))
+
+# existing VPAtlas mapped pools
 mappedpools <- st_read('~/R/VPAtlas_LiDAR/vp_mapped.geojson') %>%
   st_transform(crs = 32145) %>%
   add_count(poolStatus) %>%
   mutate(
     poolStatus = paste0(poolStatus, " (n = ", format(n, big.mark = ",", trim = TRUE), ")"),
-    `Pool Status` = factor(poolStatus)
-  ) %>%
+    `Pool Status` = factor(poolStatus)) %>%
   mutate(`Pool Status` = forcats::fct_reorder(`Pool Status`, n, .desc = TRUE)) %>%
   select(-n)
 
@@ -65,6 +48,7 @@ pote_lab <- unique(mappedpools$poolStatus[grepl("Potential", mappedpools$poolSta
 mappedpools$`Pool Status` <- factor(mappedpools$poolStatus,
                                     levels = c(conf_lab, prob_lab, pote_lab))
 
+# map grid
 interp_grid <- st_read('~/R/VPAtlas_LiDAR/LiDAR_Grid.shp') %>%
   st_transform(crs = 32145) %>%
   mutate(Checked = case_when(
@@ -74,24 +58,6 @@ interp_grid <- st_read('~/R/VPAtlas_LiDAR/LiDAR_Grid.shp') %>%
     Checked = factor(Checked,
                            levels = c("Yes",
                                       "No")))
-
-
-checkedgrid <- interp_grid[interp_grid$Checked == "Yes",]
-
-total_area <- sum(st_area(interp_grid))
-total_area_checked <- sum(st_area(checkedgrid))
-total_area_checked/total_area
-area_sq_miles_checked <- set_units(total_area, mi^2)
-
-newpools <- st_read('~/R/VPAtlas_LiDAR/2026_LiDAR_New_VPs.shp') %>%
-  st_transform(crs = 32145) %>%
-  group_by(geometry) %>%
-  slice_head(n = 1) %>%
-  ungroup() %>%
-  mutate(poolId = paste0("LDR",row_number()))
-
-
-
 grid_counts <- interp_grid %>%
   filter(Checked == 'Yes') %>%
   st_transform(crs = 32145) %>%
@@ -101,99 +67,6 @@ grid_counts <- interp_grid %>%
     pool_count = sum(!is.na(poolId)),
     Checked = first(Checked)) %>%
   ungroup()
-
-newpoolsexport <- newpools %>%
-                      st_join(depressions, left = TRUE) %>%
-                      st_transform(crs = 4326) %>%
-                      mutate(MapMethod = case_when(
-                        prd_stt == "Water_Depression" ~ "LiDAR_NDWI",
-                        prd_stt == "Water" ~ "NDWI",
-                        prd_stt == "Depression"  ~ "LiDAR",
-                        TRUE ~ "CIR")) %>%
-                        dplyr::select(poolId,MapMethod) %>%
-                      group_by(poolId) %>%
-                      slice_head(n = 1) %>% ungroup()
-nrow(newpoolsexport)
-table(newpoolsexport$MapMethod)
-
-# st_write(newpoolsexport,"New_VPs_March17_2026.geojson")
-
-mappedpools_sel <- mappedpools %>% mutate(long = st_coordinates(.)[,1],
-                                         lat = st_coordinates(.)[,2]) %>%
-                                  dplyr::select(poolId,long,lat,poolStatus) %>%
-  mutate(poolStatus = case_when(
-    poolStatus == "Confirmed (n = 965)" ~ "Confirmed",
-    poolStatus == "Potential (n = 3,306)" ~ "Potential",
-    poolStatus == "Probable (n = 1,074)"  ~ "Probable",
-    TRUE ~ as.character(poolStatus)))
-
-
-pool_town_joined <- newpools %>% mutate(long = st_coordinates(.)[,1],
-                                         lat = st_coordinates(.)[,2],
-                                     poolStatus = "New_potential") %>%
-                                  dplyr::select(poolId,long,lat,poolStatus) %>%
-                                  bind_rows(mappedpools_sel) %>%
-                                  st_intersection(towns)
-
-
-# pool_town_joined84 <- pool_town_joined %>% st_transform(4326) %>% get_elev_point()
-# saveRDS(pool_town_joined84, "pool_town_joined84.rds")
-
-
-# mappedpools_sel84 <- pool_town_joined %>% st_transform(4326) %>% select(c(poolId,poolStatus)) %>%
-  # rename(name = poolId,
-         # desc = poolStatus)#,
-         # ele = elevation)
-
-
-# st_write(mappedpools_sel84, dsn = "vernalpools_Mar14.gpx", driver = "GPX",
-         # dataset_options = "GPX_USE_EXTENSIONS=YES", delete_dsn = TRUE)
-
-
-
-
-
-
-
-hist(pool_town_joined84$elevation)
-
-mapview(pool_town_joined84, zcol = "elevation") + mapview(proland, alpha = 0.5)
-
-mapview(pool_town_joined84 %>% filter(elevation > 650,
-                                    elevation < 1000), zcol = "elevation") +
-  mapview(proland, alpha = 0.5)
-
-
-pro_visits_wmas <- st_intersection(proland,pool_town_joined) %>%
-  filter(str_detect(NAME, "WMA"))
-  # filter(poolStatus != "Confirmed")
-mapview(pro_visits_wmas[pro_visits_wmas$elevation >= 700,], zcol = "elevation")
-mapview(pro_visits_wmas, zcol = "elevation")
-
-mapview(pro_visits_wmas)
-
-
-# pool_town_joined_hart <- pool_town_joined[pool_town_joined$TOWNNAMEMC == "Hartland",]
-# pool_town_joined_hart <- pool_town_joined[pool_town_joined$TOWNNAMEMC %in% c('Weybridge','Middlebury',
-#                                                                              'Cornwall','New Haven',
-#                                                                              'Addison','Ripton',
-#                                                                              'Whiting','Salisbury'),]
-pool_town_joined_hart <- pool_town_joined[pool_town_joined$TOWNNAMEMC == 'Woodstock',]
-
-mapview(pool_town_joined_hart)
-# write.csv(pool_town_joined_hart,"All_Pools_Middlebury.csv")
-table(pool_town_joined_hart$poolStatus)
-
-
-
-pro_visits <- st_intersection(proland,pool_town_joined) %>%
-                      filter(poolStatus != "Confirmed")
-
-mapview(pro_visits)
-
-# write.csv(pro_visits,"Protected_lands_Pools_Middlebury.csv")
-#
-
 
 depressions_int <- depressions %>% st_join(pool_town_joined, left = FALSE) %>%
                                   st_transform(crs = 4326) %>%
@@ -207,20 +80,6 @@ depressions_int <- depressions %>% st_join(pool_town_joined, left = FALSE) %>%
                                   slice_head(n = 1) %>% ungroup()
 table(depressions_int$DetectionMethod)
 
-
-
-
-mappedpoolsdetect <- mappedpools_sel %>% st_join(depressions)
-mapview(mappedpoolsdetect[is.na(mappedpoolsdetect$prd_stt), ])
-# mapview(depressions_int, zcol = "DetectionMethod") + mapview(all_pools_sel)
-# mapview(depressions_int[depressions_int$poolId == "LDR1836",])
-# st_write(depressions_int,"LiDAR_Polygons_March17_2026.geojson")
-
-## maps
-
-vt_water <- st_read("~/R/EAME_Report_Scripts/FS_VCGI_OPENDATA_Water_VHDCARTO_poly_SP_v1_-4286233864636686690.geojson") %>%
-  st_transform(crs = 32145) %>%
-  st_simplify(dTolerance = 1)
 
 
 p1 <- ggplot() +
