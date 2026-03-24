@@ -1,7 +1,6 @@
 library(tidyverse) # data manipulation, workflow
 library(sf) # vector data
 library(terra) # raster data
-library(arcpullr) # download ESRI-hosted data
 library(ggspatial)
 library(cowplot)
 library(patchwork)
