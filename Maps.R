@@ -1,6 +1,6 @@
-library(tidyverse) # data manipulation, workflow
-library(sf) # vector data
-library(terra) # raster data
+library(tidyverse) 
+library(sf) 
+library(terra)
 library(ggspatial)
 library(cowplot)
 library(patchwork)
@@ -115,15 +115,12 @@ p1 <- ggplot() +
         legend.text = element_text(size=12),
         legend.title=element_text(size=15, face = "bold"),
         legend.position = c(.8, .39),
-        legend.background = element_rect(fill="white",
-                                         size=.5, linetype="solid",
-                                         colour ="black"),
+        legend.background = element_rect(fill="white", size=.5,
+                                         linetype="solid", colour ="black"),
         axis.text=element_blank(),
         axis.title=element_blank(),
         axis.ticks = element_blank(),
-        # axis.text.y=element_blank(),
         panel.background = element_rect(fill = '#F6F6F6'))
-
 
 
 p2 <- ggplot() +
@@ -137,11 +134,10 @@ p2 <- ggplot() +
   geom_sf(data = bioph, fill = NA, color = "black", linewidth = .5) +
   labs(x = "Longitude", y = 'Latitude') +
   annotation_scale(aes(unit_category = "imperial",
-                       text_col = 'black',
-                       line_col = 'black',
+                       text_col = 'black', line_col = 'black',
                        width_hint = .3), height = unit(0.7, "cm"),
-                   text_cex = 1.5,
-                   pad_x = unit(3.4, "in"), pad_y = unit(.6, "in")) +
+                       text_cex = 1.5,
+                       pad_x = unit(3.4, "in"), pad_y = unit(.6, "in")) +
   annotation_north_arrow(
     location = "bl", which_north = "true",
     height = unit(1, "in"), width = unit(1, "in"),
@@ -163,15 +159,11 @@ p2 <- ggplot() +
         axis.text=element_blank(),
         axis.title=element_blank(),
         axis.ticks = element_blank(),
-        # axis.text.y=element_blank(),
         panel.background = element_rect(fill = '#F6F6F6'))
-
-
 
 
 p3 <- ggplot() +
   geom_sf(data = towns, fill = "white", color = 'gray', linewidth = .5) +
-  # Map alpha to the condition (TRUE if 0, FALSE if >0)
   geom_sf(data = grid_counts,
           aes(fill = pool_count, alpha = pool_count == 0),
           color = "black", linewidth = 0.0) +
@@ -196,7 +188,6 @@ p3 <- ggplot() +
     style = ggspatial::north_arrow_fancy_orienteering(
       fill = c("black", "white"),
       line_col = "grey20",
-      # text_family = "ArcherPro Book", # Ensure this font is loaded or comment out
       text_size = 25)) +
   guides(fill = guide_colorbar(barwidth = 2, barheight = 10)) +
   theme(
@@ -206,16 +197,12 @@ p3 <- ggplot() +
     legend.text = element_text(size=12),
     legend.title=element_text(size=15, face = "bold"),
     legend.position = c(.81, .39),
-    legend.background = element_rect(fill="white",
-                                     linewidth=.5, linetype="solid", # 'size' is deprecated for rect
-                                     colour ="black"),
+    legend.background = element_rect(fill="white", linewidth=.5,
+                                     linetype="solid", colour ="black"),
     axis.text=element_blank(),
     axis.title=element_blank(),
     axis.ticks = element_blank(),
     panel.background = element_rect(fill = '#F6F6F6'))
-
-
-
 
 
 plot <- plot_grid(
@@ -224,8 +211,4 @@ plot <- plot_grid(
   labels="AUTO", label_size = 40, label_y = 1)
 
 plot
-
-
-
-
 
