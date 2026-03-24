@@ -29,18 +29,18 @@ public_land <- proland %>%
                       '5000357025', '3000045100', '5002785975', '4000052010'))
 mapview(public_land)
 
-depressions <- st_read('/Users/kevintolan/R/VPAtlas_LiDAR/RanBlocksvp_lidar_combined.shp') %>%
+depressions <- st_read('~/R/VPAtlas_LiDAR/RanBlocksvp_lidar_combined.shp') %>%
   st_make_valid()
 
 bioph <- st_read('~/R/AMMonitor_VPMon/VPMon_AMM/spatials/Biophysical_Regions.shp')
 
-towns <- st_read('/Users/kevintolan/R/R_Spatial/spat/FS_VCGI_OPENDATA_Boundary_BNDHASH_poly_towns_SP_v1.shp') %>%
+towns <- st_read('~/R/R_Spatial/spat/FS_VCGI_OPENDATA_Boundary_BNDHASH_poly_towns_SP_v1.shp') %>%
   st_transform(crs = 32145)
 
 
 
 
-monitoredpools <- st_read('/Users/kevintolan/R/VPAtlas_LiDAR/vp_survey.geojson') %>%
+monitoredpools <- st_read('~/R/VPAtlas_LiDAR/vp_survey.geojson') %>%
   st_transform(crs = 32145) %>%
   select(poolId) %>%
   group_by(poolId) %>%
@@ -49,7 +49,7 @@ monitoredpools <- st_read('/Users/kevintolan/R/VPAtlas_LiDAR/vp_survey.geojson')
 # mapview(monitoredpools, zcol = "elevation")
 # hist(monitoredpools$elevation)
 
-mappedpools <- st_read('/Users/kevintolan/R/VPAtlas_LiDAR/vp_mapped.geojson') %>%
+mappedpools <- st_read('~/R/VPAtlas_LiDAR/vp_mapped.geojson') %>%
   st_transform(crs = 32145) %>%
   add_count(poolStatus) %>%
   mutate(
@@ -66,7 +66,7 @@ pote_lab <- unique(mappedpools$poolStatus[grepl("Potential", mappedpools$poolSta
 mappedpools$`Pool Status` <- factor(mappedpools$poolStatus,
                                     levels = c(conf_lab, prob_lab, pote_lab))
 
-interp_grid <- st_read('/Users/kevintolan/R/VPAtlas_LiDAR/LiDAR_Grid.shp') %>%
+interp_grid <- st_read('~/R/VPAtlas_LiDAR/LiDAR_Grid.shp') %>%
   st_transform(crs = 32145) %>%
   mutate(Checked = case_when(
     Checked == "Yes" ~ "Yes",
@@ -84,7 +84,7 @@ total_area_checked <- sum(st_area(checkedgrid))
 total_area_checked/total_area
 area_sq_miles_checked <- set_units(total_area, mi^2)
 
-newpools <- st_read('/Users/kevintolan/R/VPAtlas_LiDAR/2026_LiDAR_New_VPs.shp') %>%
+newpools <- st_read('~/R/VPAtlas_LiDAR/2026_LiDAR_New_VPs.shp') %>%
   st_transform(crs = 32145) %>%
   group_by(geometry) %>%
   slice_head(n = 1) %>%
@@ -219,7 +219,7 @@ mapview(mappedpoolsdetect[is.na(mappedpoolsdetect$prd_stt), ])
 
 ## maps
 
-vt_water <- st_read("/Users/kevintolan/R/EAME_Report_Scripts/FS_VCGI_OPENDATA_Water_VHDCARTO_poly_SP_v1_-4286233864636686690.geojson") %>%
+vt_water <- st_read("~/R/EAME_Report_Scripts/FS_VCGI_OPENDATA_Water_VHDCARTO_poly_SP_v1_-4286233864636686690.geojson") %>%
   st_transform(crs = 32145) %>%
   st_simplify(dTolerance = 1)
 
